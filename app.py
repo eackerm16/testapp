@@ -1,19 +1,17 @@
 import streamlit as st
-from anthropic import Anthropic
-from pypdf import PdfReader  # Changed from PyPDF2
+from pypdf import PdfReader
 import io
+import httpx
 
-# Try importing pptx with error handling
+# Initialize Anthropic client with error handling
 try:
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
-    from pptx.dml.color import RGBColor
-    from pptx.enum.text import PP_ALIGN
-except ImportError:
-    st.error("Error: Required package 'python-pptx' is not installed. Please check the deployment logs.")
-    
-# Initialize Anthropic client
-client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    from anthropic import Anthropic
+    client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+except Exception as e:
+    st.error(f"Error initializing Anthropic client. Please check your API key in Streamlit secrets.")
+    client = None
+
+# Rest of your code remains the same...
 
 def extract_text_from_pdf(pdf_file):
     """Extract text from uploaded PDF"""
