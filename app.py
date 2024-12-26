@@ -1,6 +1,6 @@
 import streamlit as st
 from anthropic import Anthropic
-import PyPDF2
+from pypdf import PdfReader  # Changed from PyPDF2
 import io
 
 # Try importing pptx with error handling
@@ -11,13 +11,13 @@ try:
     from pptx.enum.text import PP_ALIGN
 except ImportError:
     st.error("Error: Required package 'python-pptx' is not installed. Please check the deployment logs.")
-
+    
 # Initialize Anthropic client
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 def extract_text_from_pdf(pdf_file):
     """Extract text from uploaded PDF"""
-    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    pdf_reader = PdfReader(pdf_file)  # Changed from PyPDF2.PdfReader
     text = ""
     for page in pdf_reader.pages:
         text += page.extract_text()
