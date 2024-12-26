@@ -1,40 +1,69 @@
 import streamlit as st
-import pandas as pd
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
 from anthropic import Anthropic
-import plotly.express as px
-from datetime import datetime
+import PyPDF2
+import io
 
 # Initialize Anthropic client
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
-def read_excel_file(uploaded_file):
-    """Safely read Excel file"""
-    try:
-        return pd.read_excel(uploaded_file, engine='openpyxl')
-    except Exception as e:
-        st.error(f"Error reading Excel file: {str(e)}")
-        return None
+def extract_text_from_pdf(pdf_file):
+    """Extract text from uploaded PDF"""
+    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
 
-def generate_insights(data: pd.DataFrame) -> str:
-    """Generate AI insights from the data"""
+def create_mckinsey_slide(prs, title, content):
+    """Create a slide following McKinsey style"""
+    # McKinsey style slide layout (Title and Content)
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    
+    # Title style
+    title_shape = slide.shapes.title
+    title_shape.text = title
+    title_frame = title_shape.text_frame
+    p = title_frame.paragraphs[0]
+    p.font.name = 'Helvetica'
+    p.font.size = Pt(24)
+    p.font.bold = True
+    p.font.color.rgb = RGBColor(0, 0, 0)
+    
+    # Content style
+    content_shape = slide.shapes.placeholders[1]
+    content_frame = content_shape.text_frame
+    p = content_frame.add_paragraph()
+    p.text = content
+    p.font.name = 'Helvetica'
+    p.font.size = Pt(14)
+    p.font.color.rgb = RGBColor(0, 0, 0)
+    
+    return slide
+
+def generate_insights(text: str) -> dict:
+    """Generate structured insights using Claude"""
     prompt = f"""
-    You are a business analyst. Please analyze this data and provide key insights:
-    
-    Data Summary:
-    {data.describe()}
-    
+    You are a McKinsey consultant. Based on the following text, create a structured presentation outline:
+
+    Text:
+    {text}
+
     Please provide:
-    1. Key trends and patterns
-    2. Notable observations
-    3. Business recommendations
-    4. Areas of opportunity
-    
-    Format your response in clear sections with bullet points.
+    1. An executive summary (2-3 key points)
+    2. Main findings (3-4 points with supporting details)
+    3. Recommendations (2-3 actionable items)
+    4. Next steps (2-3 concrete actions)
+
+    Format each section as clear, concise bullet points suitable for a presentation.
     """
     
     response = client.messages.create(
         model="claude-3-sonnet-20240229",
-        max_tokens=1000,
+        max_tokens=1500,
         messages=[{
             "role": "user",
             "content": prompt
@@ -43,59 +72,77 @@ def generate_insights(data: pd.DataFrame) -> str:
     
     return response.content[0].text
 
+def create_presentation(insights):
+    """Create McKinsey-style presentation"""
+    prs = Presentation()
+    
+    # Set slide size to 16:9
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    
+    # Title slide
+    title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+    title_slide.shapes.title.text = "Strategic Analysis"
+    subtitle = title_slide.placeholders[1]
+    subtitle.text = "Executive Summary"
+    
+    # Create content slides
+    sections = insights.split('\n\n')
+    for section in sections:
+        if section.strip():
+            lines = section.strip().split('\n')
+            title = lines[0]
+            content = '\n'.join(lines[1:])
+            create_mckinsey_slide(prs, title, content)
+    
+    # Save presentation
+    output = io.BytesIO()
+    prs.save(output)
+    return output.getvalue()
+
 def main():
-    st.set_page_config(page_title="AI Report Generator")
+    st.set_page_config(page_title="McKinsey-Style Presentation Generator")
     
-    st.title("AI Report Generator")
-    st.write("Upload your Excel file and get AI-powered insights")
+    st.title("McKinsey-Style Presentation Generator")
+    st.write("Upload PDFs and generate professional presentations with AI insights")
     
-    # File uploader
-    uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
+    uploaded_files = st.file_uploader(
+        "Upload PDF documents", 
+        type=['pdf'],
+        accept_multiple_files=True
+    )
     
-    if uploaded_file:
-        # Read Excel file
-        data = read_excel_file(uploaded_file)
+    if uploaded_files:
+        combined_text = ""
+        for pdf_file in uploaded_files:
+            text = extract_text_from_pdf(pdf_file)
+            combined_text += text + "\n\n"
         
-        if data is not None:
-            st.success("File uploaded successfully!")
-            
-            # Show data preview
-            st.subheader("Data Preview")
-            st.dataframe(data.head())
-            
-            if st.button("Generate Report"):
-                with st.spinner("Analyzing data..."):
-                    try:
-                        # Generate insights
-                        insights = generate_insights(data)
-                        
-                        # Display insights
-                        st.subheader("AI Insights")
-                        st.write(insights)
-                        
-                        # Create visualizations
-                        st.subheader("Data Visualization")
-                        numeric_cols = data.select_dtypes(include=['float64', 'int64']).columns
-                        
-                        if len(numeric_cols) > 0:
-                            # Create a simple bar chart
-                            fig = px.bar(
-                                data,
-                                y=numeric_cols[0],
-                                title=f"Analysis of {numeric_cols[0]}"
-                            )
-                            st.plotly_chart(fig)
-                            
-                            # Create a histogram
-                            fig2 = px.histogram(
-                                data,
-                                x=numeric_cols[0],
-                                title=f"Distribution of {numeric_cols[0]}"
-                            )
-                            st.plotly_chart(fig2)
-                            
-                    except Exception as e:
-                        st.error(f"Error generating analysis: {str(e)}")
+        st.success(f"{len(uploaded_files)} file(s) uploaded successfully!")
+        
+        if st.button("Generate Presentation"):
+            with st.spinner("Analyzing documents and generating presentation..."):
+                try:
+                    # Generate insights
+                    insights = generate_insights(combined_text)
+                    
+                    # Create presentation
+                    pptx_data = create_presentation(insights)
+                    
+                    # Show insights preview
+                    st.subheader("Generated Insights")
+                    st.write(insights)
+                    
+                    # Download button
+                    st.download_button(
+                        label="Download Presentation",
+                        data=pptx_data,
+                        file_name="mckinsey_style_presentation.pptx",
+                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    )
+                    
+                except Exception as e:
+                    st.error(f"Error generating presentation: {str(e)}")
 
 if __name__ == "__main__":
     main()
