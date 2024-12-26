@@ -1,0 +1,9 @@
+pandas
+jinja2
+pyyaml
+plotly
+anthropic
+python-dotenv
+flask
+flask-wtf
+gunicorn 
