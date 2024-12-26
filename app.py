@@ -2,113 +2,72 @@ import streamlit as st
 from pypdf import PdfReader
 import io
 import httpx
+from anthropic import Anthropic
 
-# Initialize Anthropic client with error handling
-try:
-    from anthropic import Anthropic
-    client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-except Exception as e:
-    st.error(f"Error initializing Anthropic client. Please check your API key in Streamlit secrets.")
-    client = None
-
-# Rest of your code remains the same...
+def init_anthropic_client():
+    """Initialize Anthropic client with API key from secrets"""
+    try:
+        return Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    except Exception as e:
+        return None
 
 def extract_text_from_pdf(pdf_file):
     """Extract text from uploaded PDF"""
-    pdf_reader = PdfReader(pdf_file)  # Changed from PyPDF2.PdfReader
+    pdf_reader = PdfReader(pdf_file)
     text = ""
     for page in pdf_reader.pages:
         text += page.extract_text()
     return text
 
-def create_mckinsey_slide(prs, title, content):
-    """Create a slide following McKinsey style"""
-    # McKinsey style slide layout (Title and Content)
-    slide = prs.slides.add_slide(prs.slide_layouts[1])
-    
-    # Title style
-    title_shape = slide.shapes.title
-    title_shape.text = title
-    title_frame = title_shape.text_frame
-    p = title_frame.paragraphs[0]
-    p.font.name = 'Helvetica'
-    p.font.size = Pt(24)
-    p.font.bold = True
-    p.font.color.rgb = RGBColor(0, 0, 0)
-    
-    # Content style
-    content_shape = slide.shapes.placeholders[1]
-    content_frame = content_shape.text_frame
-    p = content_frame.add_paragraph()
-    p.text = content
-    p.font.name = 'Helvetica'
-    p.font.size = Pt(14)
-    p.font.color.rgb = RGBColor(0, 0, 0)
-    
-    return slide
-
-def generate_insights(text: str) -> dict:
-    """Generate structured insights using Claude"""
-    prompt = f"""
-    You are a McKinsey consultant. Based on the following text, create a structured presentation outline:
-
-    Text:
-    {text}
-
-    Please provide:
-    1. An executive summary (2-3 key points)
-    2. Main findings (3-4 points with supporting details)
-    3. Recommendations (2-3 actionable items)
-    4. Next steps (2-3 concrete actions)
-
-    Format each section as clear, concise bullet points suitable for a presentation.
-    """
-    
-    response = client.messages.create(
-        model="claude-3-sonnet-20240229",
-        max_tokens=1500,
-        messages=[{
-            "role": "user",
-            "content": prompt
-        }]
-    )
-    
-    return response.content[0].text
-
 def create_presentation(insights):
-    """Create McKinsey-style presentation"""
-    prs = Presentation()
-    
-    # Set slide size to 16:9
-    prs.slide_width = Inches(13.333)
-    prs.slide_height = Inches(7.5)
-    
-    # Title slide
-    title_slide = prs.slides.add_slide(prs.slide_layouts[0])
-    title_slide.shapes.title.text = "Strategic Analysis"
-    subtitle = title_slide.placeholders[1]
-    subtitle.text = "Executive Summary"
-    
-    # Create content slides
-    sections = insights.split('\n\n')
-    for section in sections:
-        if section.strip():
-            lines = section.strip().split('\n')
-            title = lines[0]
-            content = '\n'.join(lines[1:])
-            create_mckinsey_slide(prs, title, content)
-    
-    # Save presentation
-    output = io.BytesIO()
-    prs.save(output)
-    return output.getvalue()
+    """Create presentation from insights"""
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
+        
+        prs = Presentation()
+        # Set slide size to 16:9
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
+        
+        # Add title slide
+        title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+        title_slide.shapes.title.text = "Strategic Analysis"
+        
+        # Add content slides
+        for section in insights.split('\n\n'):
+            if section.strip():
+                slide = prs.slides.add_slide(prs.slide_layouts[1])
+                slide.shapes.title.text = section.split('\n')[0]
+                content = slide.shapes.placeholders[1]
+                content.text = '\n'.join(section.split('\n')[1:])
+        
+        # Save to BytesIO
+        output = io.BytesIO()
+        prs.save(output)
+        return output.getvalue()
+    except Exception as e:
+        st.error(f"Error creating presentation: {str(e)}")
+        return None
 
 def main():
     st.set_page_config(page_title="McKinsey-Style Presentation Generator")
     
     st.title("McKinsey-Style Presentation Generator")
     st.write("Upload PDFs and generate professional presentations with AI insights")
-    
+
+    # Check for API key
+    if "ANTHROPIC_API_KEY" not in st.secrets:
+        st.error("Please set up your Anthropic API key in Streamlit secrets.")
+        st.stop()
+
+    # Initialize Anthropic client
+    client = init_anthropic_client()
+    if client is None:
+        st.error("Failed to initialize Anthropic client. Please check your API key.")
+        st.stop()
+
     uploaded_files = st.file_uploader(
         "Upload PDF documents", 
         type=['pdf'],
@@ -126,26 +85,44 @@ def main():
         if st.button("Generate Presentation"):
             with st.spinner("Analyzing documents and generating presentation..."):
                 try:
-                    # Generate insights
-                    insights = generate_insights(combined_text)
+                    # Generate insights using Claude
+                    response = client.messages.create(
+                        model="claude-3-sonnet-20240229",
+                        max_tokens=1500,
+                        messages=[{
+                            "role": "user",
+                            "content": f"""
+                            Analyze this text and create a structured presentation outline:
+                            
+                            {combined_text}
+                            
+                            Format as:
+                            1. Executive Summary (2-3 points)
+                            2. Key Findings (3-4 points)
+                            3. Recommendations (2-3 points)
+                            4. Next Steps (2-3 points)
+                            """
+                        }]
+                    )
                     
-                    # Create presentation
-                    pptx_data = create_presentation(insights)
+                    insights = response.content[0].text
                     
                     # Show insights preview
                     st.subheader("Generated Insights")
                     st.write(insights)
                     
-                    # Download button
-                    st.download_button(
-                        label="Download Presentation",
-                        data=pptx_data,
-                        file_name="mckinsey_style_presentation.pptx",
-                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                    )
+                    # Create and offer presentation download
+                    pptx_data = create_presentation(insights)
+                    if pptx_data:
+                        st.download_button(
+                            label="Download Presentation",
+                            data=pptx_data,
+                            file_name="strategic_analysis.pptx",
+                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        )
                     
                 except Exception as e:
-                    st.error(f"Error generating presentation: {str(e)}")
+                    st.error(f"Error generating analysis: {str(e)}")
 
 if __name__ == "__main__":
     main()
