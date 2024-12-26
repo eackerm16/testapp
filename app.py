@@ -4,9 +4,10 @@ from anthropic import Anthropic
 import plotly.express as px
 from datetime import datetime
 import io
+import os
 
-# Initialize Anthropic client
-client = Anthropic(api_key="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")
+# Initialize Anthropic client using Streamlit secrets
+client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 def generate_insights(data: pd.DataFrame) -> str:
     """Generate AI insights from the data"""
