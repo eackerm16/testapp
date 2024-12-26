@@ -4,10 +4,24 @@ from anthropic import Anthropic
 import plotly.express as px
 from datetime import datetime
 import io
-import os
+import numpy as np
 
-# Initialize Anthropic client using Streamlit secrets
+# Initialize Anthropic client
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+
+def validate_data(data: pd.DataFrame) -> bool:
+    """Validate the uploaded data"""
+    if data.empty:
+        st.error("The uploaded file contains no data")
+        return False
+    
+    # Check if there are numeric columns
+    numeric_columns = data.select_dtypes(include=['float64', 'int64']).columns
+    if len(numeric_columns) == 0:
+        st.error("The data must contain at least one numeric column")
+        return False
+    
+    return True
 
 def generate_insights(data: pd.DataFrame) -> str:
     """Generate AI insights from the data"""
@@ -16,6 +30,9 @@ def generate_insights(data: pd.DataFrame) -> str:
     
     Data Summary:
     {data.describe()}
+    
+    Columns in the dataset:
+    {', '.join(data.columns)}
     
     Please provide:
     1. Key trends and patterns in the data
@@ -37,15 +54,33 @@ def generate_insights(data: pd.DataFrame) -> str:
     
     return response.content[0].text
 
+def generate_visualizations(data: pd.DataFrame):
+    """Generate visualizations based on data types"""
+    numeric_columns = data.select_dtypes(include=['float64', 'int64']).columns
+    figures = []
+    
+    if len(numeric_columns) > 0:
+        # Time series if there's a date column
+        date_columns = data.select_dtypes(include=['datetime64']).columns
+        if len(date_columns) > 0:
+            date_col = date_columns[0]
+            for num_col in numeric_columns:
+                fig = px.line(data, x=date_col, y=num_col, 
+                            title=f'{num_col} Over Time')
+                figures.append(fig)
+        
+        # Distribution for numeric columns
+        for col in numeric_columns:
+            fig = px.histogram(data, x=col, 
+                             title=f'Distribution of {col}')
+            figures.append(fig)
+    
+    return figures
+
 def generate_report(data: pd.DataFrame) -> str:
     """Generate HTML report"""
     insights = generate_insights(data)
-    
-    # Create visualizations
-    fig1 = px.line(data, x=data.index, y=data.select_dtypes(include=['float64', 'int64']).columns[0], 
-                   title='Time Series Analysis')
-    fig2 = px.histogram(data, x=data.select_dtypes(include=['float64', 'int64']).columns[0], 
-                       title='Distribution Analysis')
+    figures = generate_visualizations(data)
     
     # Generate HTML report
     report = f"""
@@ -71,8 +106,7 @@ def generate_report(data: pd.DataFrame) -> str:
             
             <div class="section">
                 <h2>Data Visualization</h2>
-                {fig1.to_html()}
-                {fig2.to_html()}
+                {"".join([fig.to_html() for fig in figures])}
             </div>
             
             <div class="section">
@@ -90,6 +124,18 @@ def main():
     st.title("AI Report Generator")
     st.write("Upload your data file and get AI-powered insights")
     
+    # Add sample data option
+    if st.button("Use Sample Data"):
+        # Create sample data
+        dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
+        data = pd.DataFrame({
+            'Date': dates,
+            'Sales': np.random.uniform(1000, 10000, len(dates)),
+            'Units': np.random.randint(50, 500, len(dates))
+        })
+        st.session_state['data'] = data
+        st.success("Sample data loaded!")
+    
     uploaded_file = st.file_uploader("Choose a CSV or Excel file", type=['csv', 'xlsx', 'xls'])
     
     if uploaded_file:
@@ -100,32 +146,57 @@ def main():
             else:
                 data = pd.read_excel(uploaded_file)
             
+            # Convert date columns
+            for col in data.columns:
+                if data[col].dtype == 'object':
+                    try:
+                        data[col] = pd.to_datetime(data[col])
+                    except:
+                        pass
+            
+            st.session_state['data'] = data
             st.success("File uploaded successfully!")
-            
-            # Show data preview
-            st.subheader("Data Preview")
-            st.dataframe(data.head())
-            
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
+            return
+    
+    if 'data' in st.session_state:
+        data = st.session_state['data']
+        
+        # Show data preview
+        st.subheader("Data Preview")
+        st.dataframe(data.head())
+        
+        # Show column info
+        st.subheader("Column Information")
+        col_info = pd.DataFrame({
+            'Type': data.dtypes,
+            'Non-Null Count': data.count(),
+            'Null Count': data.isnull().sum()
+        })
+        st.dataframe(col_info)
+        
+        if validate_data(data):
             if st.button("Generate Report"):
                 with st.spinner("Generating report..."):
-                    # Generate report
-                    report = generate_report(data)
-                    
-                    # Create download button
-                    report_bytes = report.encode('utf-8')
-                    st.download_button(
-                        label="Download Report",
-                        data=report_bytes,
-                        file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-                        mime="text/html"
-                    )
-                    
-                    # Show preview
-                    st.subheader("Report Preview")
-                    st.components.v1.html(report, height=600, scrolling=True)
-                    
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+                    try:
+                        # Generate report
+                        report = generate_report(data)
+                        
+                        # Create download button
+                        report_bytes = report.encode('utf-8')
+                        st.download_button(
+                            label="Download Report",
+                            data=report_bytes,
+                            file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                            mime="text/html"
+                        )
+                        
+                        # Show preview
+                        st.subheader("Report Preview")
+                        st.components.v1.html(report, height=600, scrolling=True)
+                    except Exception as e:
+                        st.error(f"Error generating report: {str(e)}")
 
 if __name__ == "__main__":
-    main() 
+    main()
