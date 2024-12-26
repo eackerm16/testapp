@@ -6,7 +6,7 @@ from datetime import datetime
 import io
 
 # Initialize Anthropic client
-client = Anthropic(api_key="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")
+client = Anthropic(api_key="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")
 
 def generate_insights(data: pd.DataFrame) -> str:
     """Generate AI insights from the data"""
