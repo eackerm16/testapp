@@ -1,11 +1,16 @@
 import streamlit as st
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
 from anthropic import Anthropic
 import PyPDF2
 import io
+
+# Try importing pptx with error handling
+try:
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+except ImportError:
+    st.error("Error: Required package 'python-pptx' is not installed. Please check the deployment logs.")
 
 # Initialize Anthropic client
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
